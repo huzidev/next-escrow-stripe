@@ -5,6 +5,8 @@ import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { Plane, Calendar, MapPin, Users, Clock } from 'lucide-react';
+import { StripeProvider } from '@/components/providers/StripeProvider';
+import { PaymentForm } from '@/components/PaymentForm';
 
 interface Flight {
   id: string;
@@ -35,6 +37,9 @@ export default function HomePage() {
   });
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [showBookingModal, setShowBookingModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentClientSecret, setPaymentClientSecret] = useState('');
+  const [currentBookingId, setCurrentBookingId] = useState('');
   const [bookingData, setBookingData] = useState({
     passengerName: '',
     passengerEmail: '',
@@ -100,10 +105,10 @@ export default function HomePage() {
 
       if (response.ok) {
         const data = await response.json();
-        // In a real app, you'd integrate with Stripe Elements here
-        alert(`Booking created! Booking ID: ${data.bookingId}`);
+        setCurrentBookingId(data.bookingId);
+        setPaymentClientSecret(data.clientSecret);
         setShowBookingModal(false);
-        fetchFlights(); // Refresh flights to show updated seat availability
+        setShowPaymentModal(true);
       } else {
         const error = await response.json();
         alert(`Error: ${error.error}`);
@@ -111,6 +116,21 @@ export default function HomePage() {
     } catch (error) {
       alert('Booking failed. Please try again.');
     }
+  };
+
+  const handlePaymentSuccess = () => {
+    setShowPaymentModal(false);
+    setPaymentClientSecret('');
+    setCurrentBookingId('');
+    alert('Payment successful! Your booking has been confirmed.');
+    fetchFlights(); // Refresh flights to show updated seat availability
+  };
+
+  const handlePaymentCancel = () => {
+    setShowPaymentModal(false);
+    setPaymentClientSecret('');
+    setCurrentBookingId('');
+    // TODO: Cancel the booking in the database
   };
 
   if (status === 'loading') {
@@ -346,6 +366,43 @@ export default function HomePage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentModal && selectedFlight && paymentClientSecret && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">
+              Complete Payment for Flight {selectedFlight.flightNumber}
+            </h3>
+            <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+              <div className="flex justify-between text-sm mb-2">
+                <span>Flight:</span>
+                <span>{selectedFlight.flightNumber}</span>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <span>Route:</span>
+                <span>{selectedFlight.origin} → {selectedFlight.destination}</span>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <span>Passenger:</span>
+                <span>{bookingData.passengerName}</span>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <span>Seats:</span>
+                <span>{bookingData.seatsToBook}</span>
+              </div>
+            </div>
+            <StripeProvider clientSecret={paymentClientSecret}>
+              <PaymentForm
+                bookingId={currentBookingId}
+                amount={selectedFlight.price * bookingData.seatsToBook}
+                onSuccess={handlePaymentSuccess}
+                onCancel={handlePaymentCancel}
+              />
+            </StripeProvider>
           </div>
         </div>
       )}

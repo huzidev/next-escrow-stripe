@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { capturePayment } from '@/lib/stripe';
 
 export async function POST(request: NextRequest) {
   try {
-    const { bookingId, paymentIntentId } = await request.json();
+    const { bookingId } = await request.json();
 
     // Find the booking
     const booking = await prisma.booking.findUnique({
@@ -14,10 +13,6 @@ export async function POST(request: NextRequest) {
 
     if (!booking) {
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
-    }
-
-    if (booking.stripePaymentId !== paymentIntentId) {
-      return NextResponse.json({ error: 'Invalid payment intent' }, { status: 400 });
     }
 
     // Update flight seats and booking status in a transaction

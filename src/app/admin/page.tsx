@@ -33,11 +33,35 @@ interface Aircraft {
   totalSeats: number;
 }
 
+interface Booking {
+  id: string;
+  seatsBooked: number;
+  totalAmount: number;
+  status: 'PENDING' | 'CONFIRMED' | 'PAID' | 'CANCELLED' | 'REFUNDED';
+  refunded: boolean;
+  refundAmount?: number;
+  stripePaymentId: string;
+  createdAt: string;
+  user: {
+    id: string;
+    email: string;
+    name: string;
+  };
+  flight: {
+    id: string;
+    flightNumber: string;
+    origin: string;
+    destination: string;
+    departureTime: string;
+  };
+}
+
 export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [flights, setFlights] = useState<Flight[]>([]);
   const [aircraft, setAircraft] = useState<Aircraft[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingFlight, setEditingFlight] = useState<Flight | null>(null);
@@ -68,18 +92,21 @@ export default function AdminPage() {
 
   const fetchData = async () => {
     try {
-      const [flightsRes, aircraftRes] = await Promise.all([
+      const [flightsRes, aircraftRes, bookingsRes] = await Promise.all([
         fetch('/api/flights'),
         fetch('/api/aircraft'),
+        fetch('/api/admin/bookings'),
       ]);
       
-      const [flightsData, aircraftData] = await Promise.all([
+      const [flightsData, aircraftData, bookingsData] = await Promise.all([
         flightsRes.json(),
         aircraftRes.json(),
+        bookingsRes.json(),
       ]);
       
       setFlights(flightsData);
       setAircraft(aircraftData);
+      setBookings(bookingsData);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -167,7 +194,7 @@ export default function AdminPage() {
     }
   };
 
-  const runRefundCheck = async () => {
+    const runRefundCheck = async () => {
     if (!confirm('This will check flights and process refunds for those not meeting minimum seat requirements. Continue?')) return;
 
     try {
@@ -180,10 +207,37 @@ export default function AdminPage() {
         alert(`Refund check completed. ${data.results.length} bookings processed.`);
         fetchData();
       } else {
-        alert('Refund check failed.');
+        const error = await response.json();
+        alert(`Error: ${error.error}`);
       }
     } catch (error) {
       alert('Refund check failed. Please try again.');
+    }
+  };
+
+  const handleEscrowAction = async (bookingId: string, action: 'capture' | 'refund') => {
+    const actionText = action === 'capture' ? 'capture payment for' : 'refund';
+    if (!confirm(`Are you sure you want to ${actionText} this booking?`)) return;
+
+    try {
+      const response = await fetch('/api/admin/escrow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ bookingId, action }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert(data.message);
+        fetchData(); // Refresh all data
+      } else {
+        alert(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      alert(`Error performing ${action} action`);
     }
   };
 
@@ -381,6 +435,115 @@ export default function AdminPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Bookings Management */}
+      <div className="bg-white shadow rounded-lg">
+        <div className="px-4 py-5 sm:p-6">
+          <h2 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+            <Calendar className="h-5 w-5 mr-2" />
+            Recent Bookings & Escrow Management
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Booking Details
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Flight
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Amount
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Escrow Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {bookings.slice(0, 10).map((booking) => (
+                  <tr key={booking.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{booking.user.name}</div>
+                        <div className="text-sm text-gray-500">{booking.user.email}</div>
+                        <div className="text-xs text-gray-400">
+                          {booking.seatsBooked} seat(s) • {format(new Date(booking.createdAt), 'MMM dd, HH:mm')}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{booking.flight.flightNumber}</div>
+                      <div className="text-sm text-gray-500">
+                        {booking.flight.origin} → {booking.flight.destination}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {format(new Date(booking.flight.departureTime), 'MMM dd, HH:mm')}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">${booking.totalAmount}</div>
+                      {booking.refunded && (
+                        <div className="text-xs text-red-600">
+                          Refunded: ${booking.refundAmount}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs rounded-full ${
+                        booking.status === 'CONFIRMED' ? 'bg-green-100 text-green-800' :
+                        booking.status === 'PAID' ? 'bg-blue-100 text-blue-800' :
+                        booking.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
+                        booking.status === 'CANCELLED' ? 'bg-red-100 text-red-800' :
+                        booking.status === 'REFUNDED' ? 'bg-gray-100 text-gray-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {booking.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      {booking.status === 'CONFIRMED' && (
+                        <div className="flex justify-end space-x-2">
+                          <button
+                            onClick={() => handleEscrowAction(booking.id, 'capture')}
+                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs"
+                          >
+                            Capture
+                          </button>
+                          <button
+                            onClick={() => handleEscrowAction(booking.id, 'refund')}
+                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs"
+                          >
+                            Refund
+                          </button>
+                        </div>
+                      )}
+                      {booking.status === 'PAID' && (
+                        <span className="text-xs text-green-600 font-medium">Payment Captured</span>
+                      )}
+                      {booking.status === 'REFUNDED' && (
+                        <span className="text-xs text-gray-600 font-medium">Refunded</span>
+                      )}
+                      {booking.status === 'PENDING' && (
+                        <span className="text-xs text-yellow-600 font-medium">Awaiting Payment</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {bookings.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                No bookings found
+              </div>
+            )}
           </div>
         </div>
       </div>
