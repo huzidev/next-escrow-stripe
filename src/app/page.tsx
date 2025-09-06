@@ -1,103 +1,354 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useEffect } from 'react';
+import { useSession, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { format } from 'date-fns';
+import { Plane, Calendar, MapPin, Users, Clock } from 'lucide-react';
+
+interface Flight {
+  id: string;
+  flightNumber: string;
+  origin: string;
+  destination: string;
+  departureTime: string;
+  arrivalTime: string;
+  price: number;
+  availableSeats: number;
+  soldSeats: number;
+  minimumSeats: number;
+  aircraft: {
+    model: string;
+    manufacturer: string;
+  };
+}
+
+export default function HomePage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const [flights, setFlights] = useState<Flight[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchParams, setSearchParams] = useState({
+    origin: '',
+    destination: '',
+    date: '',
+  });
+  const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [bookingData, setBookingData] = useState({
+    passengerName: '',
+    passengerEmail: '',
+    seatsToBook: 1,
+  });
+
+  useEffect(() => {
+    if (status === 'loading') return;
+    if (!session) {
+      router.push('/auth/signin');
+      return;
+    }
+    
+    fetchFlights();
+  }, [session, status]);
+
+  const fetchFlights = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (searchParams.origin) params.append('origin', searchParams.origin);
+      if (searchParams.destination) params.append('destination', searchParams.destination);
+      if (searchParams.date) params.append('date', searchParams.date);
+
+      const response = await fetch(`/api/flights?${params}`);
+      const data = await response.json();
+      setFlights(data);
+    } catch (error) {
+      console.error('Error fetching flights:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    fetchFlights();
+  };
+
+  const handleBooking = async (flight: Flight) => {
+    setSelectedFlight(flight);
+    setBookingData({
+      passengerName: session?.user?.name || '',
+      passengerEmail: session?.user?.email || '',
+      seatsToBook: 1,
+    });
+    setShowBookingModal(true);
+  };
+
+  const submitBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFlight) return;
+
+    try {
+      const response = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flightId: selectedFlight.id,
+          ...bookingData,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // In a real app, you'd integrate with Stripe Elements here
+        alert(`Booking created! Booking ID: ${data.bookingId}`);
+        setShowBookingModal(false);
+        fetchFlights(); // Refresh flights to show updated seat availability
+      } else {
+        const error = await response.json();
+        alert(`Error: ${error.error}`);
+      }
+    } catch (error) {
+      alert('Booking failed. Please try again.');
+    }
+  };
+
+  if (status === 'loading') {
+    return <div className="flex justify-center items-center min-h-screen">Loading...</div>;
+  }
+
+  if (!session) {
+    return null;
+  }
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-6">
+            <div className="flex items-center">
+              <Plane className="h-8 w-8 text-indigo-600 mr-2" />
+              <h1 className="text-2xl font-bold text-gray-900">Flight Booking</h1>
+            </div>
+            <div className="flex items-center space-x-4">
+              <span className="text-gray-700">Welcome, {session.user.name}</span>
+              {session.user.isAdmin && (
+                <button
+                  onClick={() => router.push('/admin')}
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
+                >
+                  Admin Panel
+                </button>
+              )}
+              <button
+                onClick={() => signOut()}
+                className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </header>
+
+      {/* Search Form */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white rounded-lg shadow p-6 mb-8">
+          <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                <MapPin className="inline h-4 w-4 mr-1" />
+                From
+              </label>
+              <input
+                type="text"
+                value={searchParams.origin}
+                onChange={(e) => setSearchParams({ ...searchParams, origin: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="Origin city"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                <MapPin className="inline h-4 w-4 mr-1" />
+                To
+              </label>
+              <input
+                type="text"
+                value={searchParams.destination}
+                onChange={(e) => setSearchParams({ ...searchParams, destination: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="Destination city"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                <Calendar className="inline h-4 w-4 mr-1" />
+                Date
+              </label>
+              <input
+                type="date"
+                value={searchParams.date}
+                onChange={(e) => setSearchParams({ ...searchParams, date: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {loading ? 'Searching...' : 'Search Flights'}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Flight Results */}
+        <div className="space-y-4">
+          {flights.length === 0 && !loading && (
+            <div className="text-center py-8 text-gray-500">
+              No flights found. Try adjusting your search criteria.
+            </div>
+          )}
+          
+          {flights.map((flight) => (
+            <div key={flight.id} className="bg-white rounded-lg shadow p-6">
+              <div className="flex justify-between items-start">
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <div className="text-lg font-semibold text-gray-900">{flight.flightNumber}</div>
+                    <div className="text-sm text-gray-500">
+                      {flight.aircraft.manufacturer} {flight.aircraft.model}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center text-sm text-gray-600 mb-1">
+                      <Clock className="h-4 w-4 mr-1" />
+                      Departure
+                    </div>
+                    <div className="font-medium">{flight.origin}</div>
+                    <div className="text-sm text-gray-500">
+                      {format(new Date(flight.departureTime), 'MMM dd, HH:mm')}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center text-sm text-gray-600 mb-1">
+                      <Clock className="h-4 w-4 mr-1" />
+                      Arrival
+                    </div>
+                    <div className="font-medium">{flight.destination}</div>
+                    <div className="text-sm text-gray-500">
+                      {format(new Date(flight.arrivalTime), 'MMM dd, HH:mm')}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-gray-900">${flight.price}</div>
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Users className="h-4 w-4 mr-1" />
+                      {flight.availableSeats} seats left
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Min. {flight.minimumSeats} seats required
+                    </div>
+                  </div>
+                </div>
+                <div className="ml-6">
+                  <button
+                    onClick={() => handleBooking(flight)}
+                    disabled={flight.availableSeats === 0}
+                    className="bg-indigo-600 text-white px-6 py-2 rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    {flight.availableSeats === 0 ? 'Sold Out' : 'Book Now'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Booking Modal */}
+      {showBookingModal && selectedFlight && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Book Flight {selectedFlight.flightNumber}</h3>
+            <form onSubmit={submitBooking} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Passenger Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={bookingData.passengerName}
+                  onChange={(e) => setBookingData({ ...bookingData, passengerName: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Passenger Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={bookingData.passengerEmail}
+                  onChange={(e) => setBookingData({ ...bookingData, passengerEmail: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Number of Seats
+                </label>
+                <select
+                  value={bookingData.seatsToBook}
+                  onChange={(e) => setBookingData({ ...bookingData, seatsToBook: parseInt(e.target.value) })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {[...Array(Math.min(selectedFlight.availableSeats, 5))].map((_, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      {i + 1} seat{i > 0 ? 's' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-md">
+                <div className="flex justify-between text-sm">
+                  <span>Price per seat:</span>
+                  <span>${selectedFlight.price}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span>Seats:</span>
+                  <span>{bookingData.seatsToBook}</span>
+                </div>
+                <div className="flex justify-between font-semibold text-lg border-t pt-2 mt-2">
+                  <span>Total:</span>
+                  <span>${selectedFlight.price * bookingData.seatsToBook}</span>
+                </div>
+              </div>
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowBookingModal(false)}
+                  className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700"
+                >
+                  Book Flight
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
